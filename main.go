@@ -19,11 +19,12 @@ type phish struct {
 }
 
 type database struct {
-	username string
-	apiKey   string
-	eTag     string
-	urls     map[string]struct{}
-	mutex    sync.RWMutex
+	username    string
+	apiKey      string
+	lastUpdated time.Time
+	eTag        string
+	urls        map[string]struct{}
+	mutex       sync.RWMutex
 }
 
 func (d *database) newRequest(method string) (*http.Request, error) {
@@ -92,16 +93,27 @@ func (d *database) load() error {
 
 	d.eTag = res.Header.Get("ETag")
 	d.mutex.Lock()
+	d.lastUpdated = time.Now()
 	d.urls = urls
 	d.mutex.Unlock()
 
 	return nil
 }
 
-func (d *database) check(url string) bool {
+func (d *database) check(urls []string) []string {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
-	_, found := d.urls[strings.ToLower(url)]
+
+	found := make([]string, 0)
+
+	for i := range urls {
+		_, present := d.urls[strings.ToLower(urls[i])]
+
+		if present {
+			found = append(found, urls[i])
+		}
+	}
+
 	return found
 }
 
@@ -176,16 +188,23 @@ func main() {
 			return
 		}
 
-		phish := make([]string, 0)
-
-		for i := range urls {
-			if db.check(urls[i]) {
-				phish = append(phish, urls[i])
-			}
-		}
+		phish := db.check(urls)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(phish)
+	})
+	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		db.mutex.RLock()
+		defer db.mutex.RUnlock()
+		status := struct {
+			LastUpdated time.Time
+			EntryCount  int
+		}{
+			LastUpdated: db.lastUpdated,
+			EntryCount:  len(db.urls),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
 	})
 
 	log.Print("Listening on " + *portPtr)
