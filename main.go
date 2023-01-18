@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,12 +20,14 @@ type phish struct {
 }
 
 type database struct {
-	username    string
-	apiKey      string
-	lastUpdated time.Time
-	eTag        string
-	urls        map[string]struct{}
-	mutex       sync.RWMutex
+	username       string
+	apiKey         string
+	lastUpdated    time.Time
+	eTag           string
+	urls           map[string]struct{}
+	mutex          sync.RWMutex
+	searchCount    int64
+	searchURLCount int64
 }
 
 func (d *database) newRequest(method string) (*http.Request, error) {
@@ -100,7 +103,10 @@ func (d *database) load() error {
 	return nil
 }
 
-func (d *database) check(urls []string) []string {
+func (d *database) search(urls []string) []string {
+	atomic.AddInt64(&d.searchCount, 1)
+	atomic.AddInt64(&d.searchURLCount, int64(len(urls)))
+
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
@@ -173,7 +179,7 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/check", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
@@ -188,7 +194,7 @@ func main() {
 			return
 		}
 
-		phish := db.check(urls)
+		phish := db.search(urls)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(phish)
@@ -197,11 +203,15 @@ func main() {
 		db.mutex.RLock()
 		defer db.mutex.RUnlock()
 		status := struct {
-			LastUpdated time.Time
-			EntryCount  int
+			LastUpdated    time.Time
+			EntryCount     int
+			SearchCount    int64
+			SearchURLCount int64
 		}{
-			LastUpdated: db.lastUpdated,
-			EntryCount:  len(db.urls),
+			LastUpdated:    db.lastUpdated,
+			EntryCount:     len(db.urls),
+			SearchCount:    atomic.LoadInt64(&db.searchCount),
+			SearchURLCount: atomic.LoadInt64(&db.searchURLCount),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
