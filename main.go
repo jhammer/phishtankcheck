@@ -28,6 +28,7 @@ type database struct {
 	mutex          sync.RWMutex
 	searchCount    int64
 	searchURLCount int64
+	hitURLCount    int64
 }
 
 func (d *database) newRequest(method string) (*http.Request, error) {
@@ -120,6 +121,8 @@ func (d *database) search(urls []string) []string {
 		}
 	}
 
+	atomic.AddInt64(&d.hitURLCount, int64(len(found)))
+
 	return found
 }
 
@@ -131,6 +134,8 @@ func newDatabase(username string, apiKey string) *database {
 }
 
 func main() {
+	startTime := time.Now()
+
 	portPtr := flag.String("port", "", "port to listen on")
 	refreshHoursPtr := flag.Int("refresh", 1, "refresh interval in hours")
 	usernamePtr := flag.String("username", "", "Phishtank username")
@@ -203,15 +208,19 @@ func main() {
 		db.mutex.RLock()
 		defer db.mutex.RUnlock()
 		status := struct {
+			Uptime         string
 			LastUpdated    time.Time
 			EntryCount     int
 			SearchCount    int64
 			SearchURLCount int64
+			HitURLCount    int64
 		}{
+			Uptime:         time.Since(startTime).String(),
 			LastUpdated:    db.lastUpdated,
 			EntryCount:     len(db.urls),
 			SearchCount:    atomic.LoadInt64(&db.searchCount),
 			SearchURLCount: atomic.LoadInt64(&db.searchURLCount),
+			HitURLCount:    atomic.LoadInt64(&db.hitURLCount),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
