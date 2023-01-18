@@ -87,8 +87,8 @@ func (d *database) load() error {
 
 	urls := make(map[string]struct{}, 0)
 
-	for i := range phishes {
-		urls[strings.ToLower(phishes[i].URL)] = struct{}{}
+	for _, phish := range phishes {
+		urls[strings.ToLower(phish.URL)] = struct{}{}
 	}
 
 	d.eTag = res.Header.Get("ETag")
@@ -106,11 +106,11 @@ func (d *database) check(urls []string) []string {
 
 	found := make([]string, 0)
 
-	for i := range urls {
-		_, present := d.urls[strings.ToLower(urls[i])]
+	for _, url := range urls {
+		_, present := d.urls[strings.ToLower(url)]
 
 		if present {
-			found = append(found, urls[i])
+			found = append(found, url)
 		}
 	}
 
